@@ -1,19 +1,22 @@
 import logging
 import re
+from typing import Optional
 from urllib.parse import urljoin
 
 import requests_cache
 from bs4 import BeautifulSoup
+from requests_cache.session import CachedSession
 from tqdm import tqdm
 
 from configs import configure_argument_parser, configure_logging
 from constants import (BASE_DIR, EXPECTED_STATUS, LATEST_VERSION_PATTERN,
-                       MAIN_DOC_URL, MAIN_PEP_URL, PDF_A4_PATTERN)
+                       MAIN_DOC_URL, MAIN_PEP_URL, PARSER_TYPE, PDF_A4_PATTERN,
+                       HTMLTag)
 from outputs import control_output
 from utils import find_string, find_tag, get_response
 
 
-def whats_new(session):
+def whats_new(session: CachedSession) -> Optional[list[tuple]]:
     """Выводит список статей и авторов об изменениях в документации Python."""
     whats_new_url = urljoin(MAIN_DOC_URL, 'whatsnew/')
 
@@ -21,46 +24,52 @@ def whats_new(session):
     if response is None:
         return
 
-    soup = BeautifulSoup(response.text, features='lxml')
+    soup = BeautifulSoup(response.text, features=PARSER_TYPE)
 
-    main_div = find_tag(soup, 'section', attrs={'id': 'what-s-new-in-python'})
-    div_with_ul = find_tag(main_div, 'div', attrs={'class': 'toctree-wrapper'})
+    main_div = find_tag(
+        soup, HTMLTag.SECTION, attrs={'id': 'what-s-new-in-python'}
+    )
+    div_with_ul = find_tag(
+        main_div, HTMLTag.DIV, attrs={'class': 'toctree-wrapper'}
+    )
     sections_by_python = div_with_ul.find_all(
-        'li', attrs={'class': 'toctree-l1'}
+        HTMLTag.LI, attrs={'class': 'toctree-l1'}
     )
 
     results = [('Ссылка на статью', 'Заголовок', 'Редактор, Автор')]
 
     for section in tqdm(sections_by_python, desc='Сбор данных'):
-        version_a_tag = find_tag(section, 'a')
+        version_a_tag = find_tag(section, HTMLTag.A)
         version_link = urljoin(whats_new_url, version_a_tag['href'])
         response = get_response(session, version_link)
         if response is None:
             continue
 
-        soup = BeautifulSoup(response.text, features='lxml')
-        h1 = find_tag(soup, 'h1')
-        dl = find_tag(soup, 'dl')
+        soup = BeautifulSoup(response.text, features=PARSER_TYPE)
+        h1 = find_tag(soup, HTMLTag.H1)
+        dl = find_tag(soup, HTMLTag.DL)
         dl_text = dl.text.replace('\n', ' ')
         results.append((version_link, h1.text, dl_text))
 
     return results
 
 
-def latest_versions(session):
+def latest_versions(session: CachedSession) -> Optional[list[tuple]]:
     """Выводит список последних версий Python."""
     response = get_response(session, MAIN_DOC_URL)
     if response is None:
         return
 
-    soup = BeautifulSoup(response.text, features='lxml')
+    soup = BeautifulSoup(response.text, features=PARSER_TYPE)
 
-    sidebar = find_tag(soup, 'div', attrs={'class': 'sphinxsidebarwrapper'})
-    ul_tags = sidebar.find_all('ul')
+    sidebar = find_tag(
+        soup, HTMLTag.DIV, attrs={'class': 'sphinxsidebarwrapper'}
+    )
+    ul_tags = sidebar.find_all(HTMLTag.UL)
 
     for ul in ul_tags:
         if 'All versions' in ul.text:
-            a_tags = ul.find_all('a')
+            a_tags = ul.find_all(HTMLTag.A)
             break
         else:
             raise Exception('Ничего не нашлось')
@@ -80,7 +89,7 @@ def latest_versions(session):
     return results
 
 
-def download(session):
+def download(session: CachedSession) -> None:
     """Загрузка последней версии документации Python."""
     downloads_url = urljoin(MAIN_DOC_URL, 'download.html')
 
@@ -88,10 +97,12 @@ def download(session):
     if response is None:
         return
 
-    soup = BeautifulSoup(response.text, features='lxml')
+    soup = BeautifulSoup(response.text, features=PARSER_TYPE)
 
-    table_tag = find_tag(soup, 'table', attrs={'class': 'docutils'})
-    pdf_a4_tag = find_tag(table_tag, 'a', {'href': re.compile(PDF_A4_PATTERN)})
+    table_tag = find_tag(soup, HTMLTag.TABLE, attrs={'class': 'docutils'})
+    pdf_a4_tag = find_tag(
+        table_tag, HTMLTag.A, {'href': re.compile(PDF_A4_PATTERN)}
+    )
 
     pdf_a4_link = pdf_a4_tag['href']
     archive_url = urljoin(downloads_url, pdf_a4_link)
@@ -108,31 +119,34 @@ def download(session):
     logging.info(f'Архив был загружен и сохранён: {archive_path}')
 
 
-def pep(session):
+def pep(session: CachedSession) -> Optional[list[tuple]]:
     """Вывод статусов и количества PEP документов для каждого статуса."""
     response = get_response(session, MAIN_PEP_URL)
     if response is None:
         return
 
-    soup = BeautifulSoup(response.text, features='lxml')
-    all_pep_table = find_tag(soup, 'section', attrs={'id': 'numerical-index'})
-    table_body = find_tag(all_pep_table, 'tbody')
-    all_pep_tags = table_body.find_all('tr')
+    soup = BeautifulSoup(response.text, features=PARSER_TYPE)
+
+    all_pep_table = find_tag(
+        soup, HTMLTag.SECTION, attrs={'id': 'numerical-index'}
+    )
+    table_body = find_tag(all_pep_table, HTMLTag.TBODY)
+    all_pep_tags = table_body.find_all(HTMLTag.TR)
 
     all_pep = []
     different_statuses = []
     all_statuses = []
     for tag in tqdm(all_pep_tags, desc='Сбор данных'):
-        tag_outer_status = find_tag(tag, 'td')
+        tag_outer_status = find_tag(tag, HTMLTag.TD)
         outer_status = EXPECTED_STATUS[tag_outer_status.text[1:]]
-        tag_link = find_tag(tag, 'a')
+        tag_link = find_tag(tag, HTMLTag.A)
         link = tag_link['href']
         full_link = urljoin(MAIN_PEP_URL, link)
 
         response = get_response(session, full_link)
         if response is None:
             return
-        soup = BeautifulSoup(response.text, features='lxml')
+        soup = BeautifulSoup(response.text, features=PARSER_TYPE)
         before_status_tag = find_string(soup, string='Status')
         status_tag = before_status_tag.parent.next_sibling.next_sibling
         inner_status = status_tag.text
@@ -165,7 +179,7 @@ MODE_TO_FUNCTION = {
 }
 
 
-def main():
+def main() -> None:
     configure_logging()
     logging.info('Парсер запущен!')
     arg_parser = configure_argument_parser(MODE_TO_FUNCTION.keys())
