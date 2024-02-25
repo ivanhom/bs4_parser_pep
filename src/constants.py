@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-class HTMLTag():
+class HTMLTag:
     A = 'a'
     DIV = 'div'
     DL = 'dl'
@@ -15,7 +15,7 @@ class HTMLTag():
     UL = 'ul'
 
 
-class OutputType():
+class OutputType:
     PRETTY = 'pretty'
     FILE = 'file'
 
@@ -29,7 +29,9 @@ DATETIME_FORMAT = '%Y-%m-%d_%H-%M-%S'
 MAIN_DOC_URL = 'https://docs.python.org/3/'
 MAIN_PEP_URL = 'https://peps.python.org/'
 
+# Поиск заданной строки с указанием версии и статусом
 LATEST_VERSION_PATTERN = r'Python (?P<version>\d\.\d+) \((?P<status>.*)\)'
+# Поиск по окончанию названия файла и его расширению
 PDF_A4_PATTERN = r'.+pdf-a4\.zip$'
 
 LOG_FORMAT = '"%(asctime)s - [%(levelname)s] - %(message)s"'
